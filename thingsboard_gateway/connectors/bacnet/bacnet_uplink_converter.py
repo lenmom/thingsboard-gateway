@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -13,16 +13,20 @@
 #     limitations under the License.
 
 from bacpypes.apdu import APDU, ReadPropertyACK
-from bacpypes.primitivedata import Tag
 from bacpypes.constructeddata import ArrayOf
-from thingsboard_gateway.connectors.bacnet.bacnet_converter import BACnetConverter, log
-from thingsboard_gateway.tb_utility.tb_utility import TBUtility
+from bacpypes.primitivedata import Tag
+
+from thingsboard_gateway.connectors.bacnet.bacnet_converter import BACnetConverter
+from thingsboard_gateway.gateway.statistics_service import StatisticsService
 
 
 class BACnetUplinkConverter(BACnetConverter):
-    def __init__(self, config):
+    def __init__(self, config, logger):
+        self._log = logger
         self.__config = config
 
+    @StatisticsService.CollectStatistics(start_stat_type='receivedBytesFromDevices',
+                                         end_stat_type='convertedBytesFromDevice')
     def convert(self, config, data):
         value = None
         if isinstance(data, ReadPropertyACK):
@@ -37,7 +41,7 @@ class BACnetUplinkConverter(BACnetConverter):
             dict_result[datatypes[config[0]]].append({config[1]["key"]: value})
         else:
             dict_result = value
-        log.debug("%r %r", self, dict_result)
+        self._log.debug("%r %r", self, dict_result)
         return dict_result
 
     @staticmethod
@@ -57,5 +61,3 @@ class BACnetUplinkConverter(BACnetConverter):
             datatype = ArrayOf(datatype)
         value = apdu.propertyValue.cast_out(datatype)
         return value
-
-

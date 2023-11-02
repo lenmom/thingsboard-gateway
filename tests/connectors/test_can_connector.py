@@ -20,13 +20,24 @@ from os import path
 from random import choice, randint, uniform
 from string import ascii_lowercase
 from time import sleep
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-import thingsboard_gateway
+from thingsboard_gateway.gateway.tb_gateway_service import TBGatewayService
 from can import Notifier, BufferedReader, Bus, Message
 from simplejson import load
 
 from thingsboard_gateway.connectors.can.can_connector import CanConnector
+
+
+def assert_not_called_with(self, *args, **kwargs):
+    try:
+        self.assert_called_with(*args, **kwargs)
+    except AssertionError:
+        return
+    raise AssertionError('Expected %s to not have been called.' % self._format_mock_call_signature(args, kwargs))
+
+
+Mock.assert_not_called_with = assert_not_called_with
 
 logging.basicConfig(level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(module)s - %(lineno)d - %(message)s',
@@ -39,7 +50,7 @@ class CanConnectorTestsBase(unittest.TestCase):
 
     def setUp(self):
         self.bus = self._create_bus()
-        self.gateway = Mock(spec=thingsboard_gateway.TBGatewayService)
+        self.gateway = Mock(spec=TBGatewayService)
         self.connector = None
         self.config = None
 
@@ -56,14 +67,17 @@ class CanConnectorTestsBase(unittest.TestCase):
 
     def _create_connector(self, config_file_name):
         with open(self.CONFIG_PATH + config_file_name, 'r', encoding="UTF-8") as file:
-            self.config = load(file)
-            self.connector = CanConnector(self.gateway, self.config, "can")
-            self.connector.open()
-            sleep(1)  # some time to init
+            try:
+                self.config = load(file)
+                self.connector = CanConnector(self.gateway, self.config, "can")
+                self.connector._CanConnector_log = Mock()
+                self.connector.open()
+                sleep(1)  # some time to init
+            except Exception as e:
+                print(e)
 
 
 class CanConnectorPollingTests(CanConnectorTestsBase):
-
     def test_polling_once(self):
         self._create_connector("polling_once.json")
         config = self.config["devices"][0]["attributes"][0]
@@ -192,9 +206,95 @@ class CanConnectorTsAndAttrTests(CanConnectorTestsBase):
 
         self.gateway.send_to_storage.assert_called_once_with(self.connector.get_name(),
                                                              {"deviceName": self.config["devices"][1]["name"],
-                                                              "deviceType": self.connector._CanConnector__connector_type,
+                                                              "deviceType": self.connector._connector_type,
                                                               "attributes": [],
                                                               "telemetry": [{config["key"]: value}]})
+
+    def test_telemetries_with_commands(self):
+        self._create_connector("ts_and_attr.json")
+
+        config1 = self.config["devices"][2]["timeseries"][0]
+        cmd_matches1 = re.search(self.connector.CMD_REGEX, config1["command"])
+        value_matches1 = re.search(self.connector.VALUE_REGEX, config1["value"])
+        value1 = randint(0, pow(2, int(value_matches1.group(2))))
+        can_data1 = list(int(cmd_matches1.group(4)).to_bytes(int(cmd_matches1.group(2)), cmd_matches1.group(3)))
+        can_data1.extend(value1.to_bytes(int(value_matches1.group(2)),
+                                         value_matches1.group(3) if value_matches1.group(
+                                             3) else self.connector.DEFAULT_BYTEORDER))
+        can_data1.extend(
+            list(bytearray.fromhex("0" * 2 * (8 - int(value_matches1.group(2)) - int(cmd_matches1.group(2))))))
+
+        config2 = self.config["devices"][2]["timeseries"][1]
+        cmd_matches2 = re.search(self.connector.CMD_REGEX, config2["command"])
+        value_matches2 = re.search(self.connector.VALUE_REGEX, config2["value"])
+        value2 = randint(0, pow(2, int(value_matches2.group(2))))
+        can_data2 = list(int(cmd_matches2.group(4)).to_bytes(int(cmd_matches2.group(2)), cmd_matches2.group(3)))
+        can_data2.extend(value2.to_bytes(int(value_matches2.group(2)),
+                                         value_matches2.group(3) if value_matches2.group(
+                                             3) else self.connector.DEFAULT_BYTEORDER))
+        can_data2.extend(
+            list(bytearray.fromhex("0" * 2 * (8 - int(value_matches2.group(2)) - int(cmd_matches2.group(2))))))
+
+        self.bus.send(Message(arbitration_id=config1["nodeId"], data=can_data1))
+        sleep(1)
+
+        self.gateway.send_to_storage.assert_called_with(self.connector.get_name(),
+                                                        {"deviceName": self.config["devices"][2]["name"],
+                                                         "deviceType": self.connector._connector_type,
+                                                         "attributes": [],
+                                                         "telemetry": [{config1["key"]: value1}]})
+
+        self.bus.send(Message(arbitration_id=config2["nodeId"], data=can_data2))
+        sleep(1)
+
+        self.gateway.send_to_storage.assert_called_with(self.connector.get_name(),
+                                                        {"deviceName": self.config["devices"][2]["name"],
+                                                         "deviceType": self.connector._connector_type,
+                                                         "attributes": [],
+                                                         "telemetry": [{config2["key"]: value2}]})
+
+    def test_telemetries_with_different_commands_and_same_arbitration_node_id(self):
+        self._create_connector("ts_and_attr.json")
+
+        config1 = self.config["devices"][3]["timeseries"][0]
+        cmd_matches1 = re.search(self.connector.CMD_REGEX, config1["command"])
+        value_matches1 = re.search(self.connector.VALUE_REGEX, config1["value"])
+        value1 = randint(0, pow(2, int(value_matches1.group(2))))
+        can_data1 = list(int(cmd_matches1.group(4)).to_bytes(int(cmd_matches1.group(2)), cmd_matches1.group(3)))
+        can_data1.extend(value1.to_bytes(int(value_matches1.group(2)),
+                                         value_matches1.group(3) if value_matches1.group(
+                                             3) else self.connector.DEFAULT_BYTEORDER))
+        can_data1.extend(
+            list(bytearray.fromhex("0" * 2 * (8 - int(value_matches1.group(2)) - int(cmd_matches1.group(2))))))
+
+        config2 = self.config["devices"][2]["timeseries"][1]
+        cmd_matches2 = re.search(self.connector.CMD_REGEX, config2["command"])
+        value_matches2 = re.search(self.connector.VALUE_REGEX, config2["value"])
+        value2 = randint(0, pow(2, int(value_matches2.group(2))))
+        can_data2 = list(int(cmd_matches2.group(4)).to_bytes(int(cmd_matches2.group(2)), cmd_matches2.group(3)))
+        can_data2.extend(value2.to_bytes(int(value_matches2.group(2)),
+                                         value_matches2.group(3) if value_matches2.group(
+                                             3) else self.connector.DEFAULT_BYTEORDER))
+        can_data2.extend(
+            list(bytearray.fromhex("0" * 2 * (8 - int(value_matches2.group(2)) - int(cmd_matches2.group(2))))))
+
+        self.bus.send(Message(arbitration_id=config1["nodeId"], data=can_data1))
+        sleep(1)
+
+        self.gateway.send_to_storage.assert_called_with(self.connector.get_name(),
+                                                        {"deviceName": self.config["devices"][3]["name"],
+                                                         "deviceType": self.connector._connector_type,
+                                                         "attributes": [],
+                                                         "telemetry": [{config1["key"]: value1}]})
+
+        self.bus.send(Message(arbitration_id=config2["nodeId"], data=can_data2))
+        sleep(1)
+
+        self.gateway.send_to_storage.assert_not_called_with(self.connector.get_name(),
+                                                            {"deviceName": self.config["devices"][3]["name"],
+                                                             "deviceType": self.connector._connector_type,
+                                                             "attributes": [],
+                                                             "telemetry": [{config2["key"]: value2}]})
 
 
 class CanConnectorAttributeUpdatesTests(CanConnectorTestsBase):
@@ -319,7 +419,7 @@ class CanConnectorRpcTests(CanConnectorTestsBase):
                                                     }
                                                 }})
 
-        can_data = int(user_speed if max_allowed_speed > user_speed else max_allowed_speed)\
+        can_data = int(user_speed if max_allowed_speed > user_speed else max_allowed_speed) \
             .to_bytes(config["dataLength"], "little")
         actual_message = self.bus.recv(1)
         self.assertTrue(actual_message.equals(Message(arbitration_id=config["nodeId"],

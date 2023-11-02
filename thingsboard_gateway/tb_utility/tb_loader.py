@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -13,15 +13,16 @@
 #     limitations under the License.
 #
 
-from os import path, listdir
+from importlib.util import module_from_spec, spec_from_file_location
 from inspect import getmembers, isclass
-from importlib.util import spec_from_file_location, module_from_spec
 from logging import getLogger
+from os import listdir, path
 
 log = getLogger("service")
 
 EXTENSIONS_FOLDER = '/extensions'.replace('/', path.sep)
 CONNECTORS_FOLDER = '/connectors'.replace('/', path.sep)
+GRPC_CONNECTORS_FOLDER = '/grpc_connectors'.replace('/', path.sep)
 DEB_INSTALLATION_EXTENSION_PATH = '/var/lib/thingsboard_gateway/extensions'.replace('/', path.sep)
 
 
@@ -38,6 +39,7 @@ class TBModuleLoader:
             TBModuleLoader.PATHS.append(DEB_INSTALLATION_EXTENSION_PATH)
         TBModuleLoader.PATHS.append(root_path + EXTENSIONS_FOLDER)
         TBModuleLoader.PATHS.append(root_path + CONNECTORS_FOLDER)
+        TBModuleLoader.PATHS.append(root_path + GRPC_CONNECTORS_FOLDER)
 
     @staticmethod
     def import_module(extension_type, module_name):
@@ -51,7 +53,7 @@ class TBModuleLoader:
                 current_extension_path = current_path + path.sep + extension_type
                 if path.exists(current_extension_path):
                     for file in listdir(current_extension_path):
-                        if not file.startswith('__') and file.endswith('.py'):
+                        if not file.startswith('__') and (file.endswith('.py') or file.endswith('.pyc')):
                             try:
                                 module_spec = spec_from_file_location(module_name, current_extension_path + path.sep + file)
                                 log.debug(module_spec)
@@ -66,7 +68,8 @@ class TBModuleLoader:
                                         log.info("Import %s from %s.", module_name, current_extension_path)
                                         TBModuleLoader.LOADED_CONNECTORS[buffered_module_name] = extension_class[1]
                                         return extension_class[1]
-                            except ImportError:
+                            except ImportError as e:
+                                log.exception(e)
                                 continue
         except Exception as e:
             log.exception(e)

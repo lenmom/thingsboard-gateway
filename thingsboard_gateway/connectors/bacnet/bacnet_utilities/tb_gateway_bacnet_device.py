@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 #     limitations under the License.
 
 from bacpypes.local.device import LocalDeviceObject
-from thingsboard_gateway.connectors.connector import log
 
 
 class TBBACnetDevice(LocalDeviceObject):

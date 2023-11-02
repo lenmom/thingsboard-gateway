@@ -1,4 +1,4 @@
-#      Copyright 2021. ThingsBoard
+#      Copyright 2022. ThingsBoard
 #  #
 #      Licensed under the Apache License, Version 2.0 (the "License");
 #      you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@ CONFIG_SECTION_PARAMETER = "config"
 CONFIG_SERVER_SECTION_PARAMETER = "server"
 CONFIG_DEVICES_SECTION_PARAMETER = "devices"
 
+CONNECTED_DEVICES_FILENAME = "connected_devices.json"
+PERSISTENT_GRPC_CONNECTORS_KEY_FILENAME = "persistent_keys.json"
+
 # Data parameter constants
 
 DEVICE_SECTION_PARAMETER = "device"
@@ -36,6 +39,16 @@ DEVICE_TYPE_PARAMETER = "deviceType"
 
 ATTRIBUTES_PARAMETER = "attributes"
 TELEMETRY_PARAMETER = "telemetry"
+TELEMETRY_TIMESTAMP_PARAMETER = "ts"
+TELEMETRY_VALUES_PARAMETER = "values"
+
+SEND_ON_CHANGE_PARAMETER = "sendDataOnlyOnChange"
+# TTL value in milliseconds
+SEND_ON_CHANGE_TTL_PARAMETER = "sendDataOnlyOnChangeTtl"
+
+DEFAULT_SEND_ON_CHANGE_VALUE = False
+# TTL value in milliseconds
+DEFAULT_SEND_ON_CHANGE_INFINITE_TTL_VALUE = 0
 
 # RPC parameter constants
 

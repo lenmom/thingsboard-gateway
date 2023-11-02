@@ -23,13 +23,15 @@ if [ "$1" = "clean" ] || [ "$1" = "only_clean" ] ; then
   sudo apt remove python3-thingsboard-gateway -y
 fi
 
+sudo rm -rf thingsboard_gateway/logs/*
+
 if [ "$1" != "only_clean" ] ; then
   echo "Installing libraries for building deb package."
-  sudo apt-get install python3-stdeb fakeroot python-all dh-python -y
+  sudo apt-get install python3-stdeb python3-setuptools fakeroot python3-all dh-python zstd -y
   echo "Building DEB package"
   echo "Creating sources for DEB package..."
   python3 setup.py --command-packages=stdeb.command bdist_deb
-  echo "Adding the files, scripts and permissions in the package"
+  echo "Adding the files, scripts and permissions to the package"
   sudo cp -r thingsboard_gateway/extensions for_build/etc/thingsboard-gateway/
   sudo cp -r thingsboard_gateway/config for_build/etc/thingsboard-gateway/
   sudo cp -r for_build/etc deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway
@@ -40,8 +42,16 @@ if [ "$1" != "only_clean" ] ; then
   sudo chmod 775 deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/preinst
   sudo chmod +x deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/postinst
   sudo chown root:root deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/preinst
-  sudo sed -i '/^Depends: .*/ s/$/, libffi-dev, libglib2.0-dev, libxml2-dev, libxslt-dev, libssl-dev, zlib1g-dev/' deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/control >> deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/control
+  sudo sh -c "sed -i '/^Depends: .*/ s/$/, libffi-dev, libglib2.0-dev, libxml2-dev, libxslt-dev, libssl-dev, zlib1g-dev/' deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/control >> deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/DEBIAN/control"
   # Bulding Deb package
   dpkg-deb -b deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway/
-  cp deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway.deb .
+  mkdir deb-temp
+  cd deb-temp
+  ar x ../deb_dist/thingsboard-gateway-$CURRENT_VERSION/debian/python3-thingsboard-gateway.deb
+  zstd -d *.zst
+  rm *.zst
+  xz *.tar
+  ar r ../python3-thingsboard-gateway.deb debian-binary control.tar.xz data.tar.xz
+  cd ..
+  rm -r deb-temp
 fi

@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -12,13 +12,15 @@
 #     See the License for the specific language governing permissions and
 #     limitations under the License.
 
-from requests import post, ConnectionError
-from uuid import uuid1
-from platform import platform, system, release
 from logging import getLogger
-from pkg_resources import get_distribution
+from platform import platform, release, system
 from threading import Thread
-from time import time, sleep
+from time import sleep, time
+from uuid import uuid1
+
+from pkg_resources import DistributionNotFound
+from pkg_resources import get_distribution
+from requests import ConnectionError, post
 from simplejson import loads
 
 from thingsboard_gateway.tb_utility.tb_utility import TBUtility
@@ -31,8 +33,13 @@ UPDATE_SERVICE_BASE_URL = "https://updates.thingsboard.io"
 class TBUpdater(Thread):
     def __init__(self):
         super().__init__()
-        self.__version = {"current_version": get_distribution('thingsboard_gateway').version,
-                          "latest_version": get_distribution('thingsboard_gateway').version}
+
+        try:
+            self.__version = {"current_version": get_distribution('thingsboard_gateway').version,
+                              "latest_version": get_distribution('thingsboard_gateway').version}
+        except DistributionNotFound:
+            self.__version = {"current_version": "0", "latest_version": "0"}
+
         self.__instance_id = str(uuid1())
         self.__platform = system()
         self.__release = release()
@@ -91,14 +98,14 @@ class TBUpdater(Thread):
             "platform": self.__platform,
             "instanceId": self.__instance_id,
             "osVersion": self.__os_version,
-        }
+            }
         url = UPDATE_SERVICE_BASE_URL + "/api/tb-gateway/updates"
         request_args = {
             "url": url,
             "json": json_data,
             "timeout": self.__request_timeout
 
-        }
+            }
         return request_args
 
     def update(self):
@@ -107,6 +114,7 @@ class TBUpdater(Thread):
         else:
             result = "Congratulations! You have the latest version."
         return result
+
 
 if __name__ == '__main__':
     updater = TBUpdater()

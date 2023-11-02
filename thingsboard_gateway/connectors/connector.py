@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -12,10 +12,9 @@
 #     See the License for the specific language governing permissions and
 #     limitations under the License.
 
-import logging
 from abc import ABC, abstractmethod
-
-log = logging.getLogger("connector")
+from thingsboard_gateway.gateway.constants import DEFAULT_SEND_ON_CHANGE_INFINITE_TTL_VALUE, \
+    DEFAULT_SEND_ON_CHANGE_VALUE
 
 
 class Connector(ABC):
@@ -33,6 +32,14 @@ class Connector(ABC):
         pass
 
     @abstractmethod
+    def get_type(self):
+        pass
+
+    @abstractmethod
+    def get_config(self):
+        pass
+
+    @abstractmethod
     def is_connected(self):
         pass
 
@@ -43,3 +50,9 @@ class Connector(ABC):
     @abstractmethod
     def server_side_rpc_handler(self, content):
         pass
+
+    def is_filtering_enable(self, device_name):
+        return DEFAULT_SEND_ON_CHANGE_VALUE
+
+    def get_ttl_for_duplicates(self, device_name):
+        return DEFAULT_SEND_ON_CHANGE_INFINITE_TTL_VALUE

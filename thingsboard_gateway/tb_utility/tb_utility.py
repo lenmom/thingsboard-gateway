@@ -1,4 +1,4 @@
-#     Copyright 2021. ThingsBoard
+#     Copyright 2022. ThingsBoard
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
 #     you may not use this file except in compliance with the License.
@@ -11,11 +11,17 @@
 #     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #     See the License for the specific language governing permissions and
 #     limitations under the License.
-
-from re import search
+import datetime
 from logging import getLogger
-from simplejson import dumps, loads, JSONDecodeError
+from re import search, findall
+
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 from jsonpath_rw import parse
+from simplejson import JSONDecodeError, dumps, loads
 
 log = getLogger("service")
 
@@ -41,8 +47,6 @@ class TBUtility:
         error = None
         if error is None and not data.get("deviceName"):
             error = 'deviceName is empty in data: '
-        if error is None and not data.get("deviceType"):
-            error = 'deviceType is empty in data: '
 
         if error is None:
             got_attributes = False
@@ -53,7 +57,7 @@ class TBUtility:
 
             if data.get("telemetry") is not None:
                 for entry in data.get("telemetry"):
-                    if entry.get("ts") is not None and len(entry.get("values")) > 0:
+                    if (entry.get("ts") is not None and len(entry.get("values")) > 0) or entry.get("ts") is None:
                         got_telemetry = True
                         break
 
@@ -71,11 +75,11 @@ class TBUtility:
 
     @staticmethod
     def topic_to_regex(topic):
-        return topic.replace("+", "[^/]+").replace("#", ".+")
+        return topic.replace("+", "[^/]+").replace("#", ".+").replace('$', '\\$')
 
     @staticmethod
     def regex_to_topic(regex):
-        return regex.replace("[^/]+", "+").replace(".+", "#")
+        return regex.replace("[^/]+", "+").replace(".+", "#").replace('\\$', '$')
 
     @staticmethod
     def get_value(expression, body=None, value_type="string", get_tag=False, expression_instead_none=False):
@@ -97,7 +101,9 @@ class TBUtility:
         try:
             if isinstance(body, dict) and target_str.split()[0] in body:
                 if value_type.lower() == "string":
-                    full_value = expression[0: max(abs(p1 - 2), 0)] + body[target_str.split()[0]] + expression[p2 + 1:len(expression)]
+                    full_value = str(expression[0: max(p1 - 2, 0)]) + str(body[target_str.split()[0]]) + str(expression[
+                                                                                                             p2 + 1:len(
+                                                                                                                 expression)])
                 else:
                     full_value = body.get(target_str.split()[0])
             elif isinstance(body, (dict, list)):
@@ -119,11 +125,30 @@ class TBUtility:
         return full_value
 
     @staticmethod
-    def install_package(package, version="upgrade"):
+    def get_values(expression, body=None, value_type="string", get_tag=False, expression_instead_none=False):
+        expression_arr = findall(r'\$\{[${A-Za-z0-9.^\]\[*_:]*\}', expression)
+
+        values = [TBUtility.get_value(exp, body, value_type=value_type, get_tag=get_tag,
+                                      expression_instead_none=expression_instead_none) for exp in expression_arr]
+
+        if '${' not in expression:
+            values.append(expression)
+
+        return values
+
+    @staticmethod
+    def install_package(package, version="upgrade", force_install=False):
         from sys import executable
         from subprocess import check_call, CalledProcessError
         result = False
-        if version.lower() == "upgrade":
+
+        if force_install:
+            try:
+                result = check_call(
+                    [executable, '-m', 'pip', 'install', package + '==' + version, '--force-reinstall', '--user'])
+            except Exception:
+                result = check_call([executable, '-m', 'pip', 'install', package + '==' + version, '--force-reinstall'])
+        elif version.lower() == "upgrade":
             try:
                 result = check_call([executable, "-m", "pip", "install", package, "--upgrade", "--user"])
             except CalledProcessError:
@@ -143,3 +168,54 @@ class TBUtility:
                 except CalledProcessError:
                     result = check_call([executable, "-m", "pip", "install", package + installation_sign + version])
         return result
+
+    @staticmethod
+    def replace_params_tags(text, data):
+        if '${' in text:
+            for item in text.split('/'):
+                if '${' in item:
+                    tag = '${' + TBUtility.get_value(item, data['data'], 'params', get_tag=True) + '}'
+                    value = TBUtility.get_value(item, data['data'], 'params', expression_instead_none=True)
+                    text = text.replace(tag, str(value))
+        return text
+
+    @staticmethod
+    def get_dict_key_by_value(dictionary: dict, value):
+        return list(dictionary.values())[list(dictionary.values()).index(value)]
+
+    @staticmethod
+    def generate_certificate(old_certificate_path, old_key_path, old_certificate=None):
+        key = ec.generate_private_key(ec.SECP256R1())
+        public_key = key.public_key()
+        builder = x509.CertificateBuilder()
+        builder = builder.subject_name(old_certificate.subject if old_certificate else x509.Name(
+            [x509.NameAttribute(NameOID.COMMON_NAME, u'localhost'), ]))
+        builder = builder.issuer_name(old_certificate.issuer if old_certificate else x509.Name(
+            [x509.NameAttribute(NameOID.COMMON_NAME, u'localhost'), ]))
+        builder = builder.not_valid_before(datetime.datetime.today() - datetime.timedelta(days=1))
+        builder = builder.not_valid_after(datetime.datetime.today() + (datetime.timedelta(1, 0, 0) * 365))
+        builder = builder.serial_number(x509.random_serial_number())
+        builder = builder.public_key(public_key)
+        certificate = builder.sign(private_key=key, algorithm=hashes.SHA256())
+
+        cert = certificate.public_bytes(serialization.Encoding.PEM)
+        with open(old_certificate_path, 'wb+') as f:
+            f.write(cert)
+
+        key = key.private_bytes(encoding=serialization.Encoding.PEM,
+                                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                encryption_algorithm=serialization.NoEncryption())
+        with open(old_key_path, 'wb+') as f:
+            f.write(key)
+
+        return cert
+
+    @staticmethod
+    def check_certificate(certificate, key=None, generate_new=True, days_left=3):
+        cert_detail = x509.load_pem_x509_certificate(open(certificate, 'rb').read())
+
+        if cert_detail.not_valid_after - datetime.datetime.now() <= datetime.timedelta(days=days_left):
+            if generate_new:
+                return TBUtility.generate_certificate(certificate, key, cert_detail)
+            else:
+                return True
