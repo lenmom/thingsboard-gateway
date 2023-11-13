@@ -49,7 +49,7 @@ class BACnetConnector(Thread, Connector):
         self.__devices_address_name = {}
         self.__gateway = gateway
         self._log = init_logger(self.__gateway, self.name, self.__config.get('logLevel', 'INFO'))
-        self._application = TBBACnetApplication(self, self.__config)
+        self._application = TBBACnetApplication(self, self.__config, self._log)
         self.__bacnet_core_thread = Thread(target=run, name="BACnet core thread", daemon=True,
                                            kwargs={"sigterm": None, "sigusr1": None})
         self.__bacnet_core_thread.start()
@@ -110,7 +110,20 @@ class BACnetConnector(Thread, Connector):
         self.__stopped = True
         self.__connected = False
         self._log.reset()
+
+        self._application.mux.directPort.connected = False
+        self._application.mux.directPort.accepting = False
+        self._application.mux.directPort.connecting = False
+        self._application.mux.directPort.del_channel()
+        if self._application.mux.directPort.socket is not None:
+            try:
+                sleep(1)
+                self._application.mux.directPort.socket.close()
+            except OSError:
+                pass
+
         stop()
+        self._log.info('BACnet connector has been stopped.')
 
     def get_name(self):
         return self.name
